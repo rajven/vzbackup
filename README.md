@@ -1,4 +1,7 @@
 # vzbackup
+
+In memory of Vladimir Zavgorodny dedicated...
+
 Simple backup script for linux. Supported:
 - file diff backup
 - mysql backup
