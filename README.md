@@ -4,5 +4,5 @@ Simple backup script for linux. Supported:
 - mysql backup
 - postgres backup
 - mongodb backup
-- backup openvz contaniers
+- backup openvz containers
 - upload to ftp, smb
