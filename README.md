@@ -6,3 +6,5 @@ Simple backup script for linux. Supported:
 - mongodb backup
 - backup openvz containers
 - upload to ftp, smb
+
+P.S. It's just a set of scripts for different purposes combined in one place

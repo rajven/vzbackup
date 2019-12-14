@@ -1,0 +1,39 @@
+#!/bin/bash
+
+[ $# -ne 5 ] && exit 6
+
+PGDUMP=`which pg_dump`
+DB_NAME=${1}
+BACKUP_DIR=${2}
+USE_SU=${3}
+HOST=${4}
+USER=${5}
+
+PG_OPTS1=
+PG_OPTS2=
+[ -z "$DB_NAME" ] && exit
+[ -n "${USER}" ] && PG_OPTS1="-U ${USER}"
+[ -n "${HOST}" ] && PG_OPTS2="-h ${HOST}"
+
+[ ! -e "${BACKUP_DIR}/${DB_NAME}" ] && mkdir -p "${BACKUP_DIR}/${DB_NAME}"
+chown -R postgres:root "${BACKUP_DIR}"
+chmod 750 -R "${BACKUP_DIR}"
+find "${BACKUP_DIR}" -type f -exec chmod 640 {} \;
+
+if [ "${USE_SU}" == "no" ]; then
+    $PGDUMP ${PG_OPTS1} ${PG_OPTS2} -f "${BACKUP_DIR}/${DB_NAME}/${DB_NAME}.sql" $DB_NAME
+    ret=$?
+    else
+    su postgres -c "$PGDUMP ${PG_OPTS1} ${PG_OPTS2} -f \"${BACKUP_DIR}/${DB_NAME}/${DB_NAME}.sql\" $DB_NAME"
+    ret=$?
+    fi
+
+if [ ${ret} -eq 0 ]; then
+        FNAME="${BACKUP_DIR}-${DB_NAME}.tgz"
+        tar c -z -f $FNAME "${BACKUP_DIR}/${DB_NAME}/${DB_NAME}.sql" >/dev/null 2>&1
+        ret=$?
+        fi
+
+rm -rf "${BACKUP_DIR}"
+
+exit ${ret}

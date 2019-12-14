@@ -1,0 +1,52 @@
+#!/bin/bash
+
+[ $# -ne 5 ] && exit 6
+
+DBHOST=${1}
+DBUSER=${2}
+DBPASS=${3}
+DATABASE=${4}
+BACKUP_DIR=${5}
+
+BUG=`echo "${DATABASE}" | sed 's/ //g' | grep -i "^information_schema$"`
+[ -n "${BUG}" ] && exit 0
+
+MDUMP=`which mysqldump`
+MSQL=`which mysql`
+
+[ -z "${MDUMP}" ] && exit 200
+[ -z "${BACKUP_DIR}" -o "${BACKUP_DIR}" == "/" ] && exit 200
+
+[ -e "${BACKUP_DIR}/${DATABASE}" ] && rm -rf "${BACKUP_DIR}/${DATABASE}"
+[ ! -e "${BACKUP_DIR}/${DATABASE}" ] && mkdir -p "${BACKUP_DIR}/${DATABASE}" >/dev/null
+
+BUG_26121=`${MDUMP} --help | grep skip-lock-tables`
+
+if [ -z "${BUG_26121}" ]; then
+    FIX_26121="--lock-tables=0"
+    else
+    FIX_26121="--skip-lock-tables"
+    fi
+
+use_ip=$(echo "${DBHOST}" | egrep "^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$")
+
+if [ -z "${use_ip}" ]; then
+    OPTS="-S ${DBHOST}"
+    else
+    OPTS="--host=${DBHOST}"
+    fi
+
+${MDUMP} --user="${DBUSER}" --password="${DBPASS}" ${OPTS} "${FIX_26121}" --quick --single-transaction --routines --skip-triggers --hex-blob --no-data ${DATABASE} | sed -e 's/\/\*\![0-9][0-9]* *DEFINER[^\*]*\*\///g' > ${BACKUP_DIR}/${DATABASE}/__structure.sql
+[ $? -ne 0 ] && exit 101
+${MDUMP} --user="${DBUSER}" --password="${DBPASS}" ${OPTS} "${FIX_26121}" --quick --single-transaction --triggers --hex-blob --no-data --skip-add-drop-table --no-create-info ${DATABASE} | sed -e 's/\/\*\![0-9][0-9]* *DEFINER[^\*]*\*\///g' > ${BACKUP_DIR}/${DATABASE}/__triggers.sql
+
+TABLE_LIST=`${MSQL} --user="${DBUSER}" --password="${DBPASS}" ${OPTS} --disable-pager -B -e "show tables;" --skip-column-names -q --silent ${DATABASE}`
+echo "${TABLE_LIST}" | while read TB; do
+[ -n "${TB}" ] && ${MDUMP} --user="${DBUSER}" --password="${DBPASS}" ${OPTS} "${FIX_26121}" --quick --skip-add-drop-table --no-create-info ${DATABASE} ${TB} >${BACKUP_DIR}/${DATABASE}/${TB}.sql
+done
+
+tar -czf "${BACKUP_DIR}-${DATABASE}.tgz" "${BACKUP_DIR}/${DATABASE}" >/dev/null 2>&1
+ret=$?
+rm -rf "${BACKUP_DIR}" >/dev/null
+
+exit ${ret}

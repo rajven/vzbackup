@@ -1,0 +1,6 @@
+/proc/*
+/sys/*
+/dev/*
+/run/*
+/tmp/*
+/var/lib/mysql/*

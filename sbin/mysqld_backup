@@ -1,0 +1,38 @@
+#!/bin/bash
+
+[ $# -ne 5 ] && exit 6
+
+DBHOST=${1}
+DBUSER=${2}
+DBPASS=${3}
+DATABASE=${4}
+BACKUP_DIR=${5}
+
+BUG=`echo "${DATABASE}" | sed 's/ //g' | grep -i "^information_schema$"`
+[ -n "${BUG}" ] && exit 0
+
+HOTCOPY=`which mysqlhotcopy`
+
+[ -z "${HOTCOPY}" ] && exit
+[ -z "${BACKUP_DIR}" -o "${BACKUP_DIR}" == "/" ] && exit
+
+[ -e "${BACKUP_DIR}" ] && rm -rf "${BACKUP_DIR}"
+[ ! -e "${BACKUP_DIR}" ] && mkdir -p "${BACKUP_DIR}" >/dev/null
+
+use_ip=$(echo "${DBHOST}" | egrep "^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$")
+
+if [ -z "${use_ip}" ]; then
+    OPTS="-S ${DBHOST}"
+    else
+    OPTS="-h ${DBHOST}"
+    fi
+
+$HOTCOPY -u "${DBUSER}" -p "${DBPASS}" ${OPTS} --allowold -q "${DATABASE}" "${BACKUP_DIR}" >/dev/null
+
+[ $? -ne 0 ] && exit 100
+
+tar -czf "${BACKUP_DIR}-${DATABASE}.tgz" "${BACKUP_DIR}/${DATABASE}" >/dev/null 2>&1
+ret=$?
+rm -rf "${BACKUP_DIR}" >/dev/null
+
+exit ${ret}

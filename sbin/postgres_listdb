@@ -1,0 +1,24 @@
+#!/bin/bash
+
+[ $# -lt 1 ] && exit 6
+
+PSQL=`which psql`
+
+USE_SU=${1}
+HOST=${2}
+USER=${3}
+
+PG_OPTS1=
+PG_OPTS2=
+[ -n "${USER}" ] && PG_OPTS1="-U ${USER}"
+[ -n "${HOST}" ] && PG_OPTS2="-h ${HOST}"
+
+if [ "${USE_SU}" == "no" ]; then
+    $PSQL -l ${PG_OPTS1} ${PG_OPTS2} -t -x | grep Name | awk '{ print $3 }' | grep -v template
+    ret=$?
+    else
+    su postgres -c "$PSQL -l ${PG_OPTS1} ${PG_OPTS2} -t -x | grep Name | awk '{ print \$3 }' | grep -v template"
+    ret=$?
+    fi
+
+exit ${ret}

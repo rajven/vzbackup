@@ -1,0 +1,22 @@
+#!/bin/bash
+
+. /etc/rsync/sync-functions
+
+########################### SYNC DIR ##########################
+
+WORKDIR="backup"
+ROOTPATH="/mnt/sdb/"
+DELLIMIT="10000000"
+MAXFILES=44
+USERID="backup"
+PASSWDFILE="/etc/rsync/rsyncd.secrets"
+HOST="server"
+MODE=$1
+SETLOCALE="ru_RU.UTF-8"
+OPTS=" --exclude-from /etc/rsync/server.exclude --bwlimit=40m"
+
+sync_share
+
+/usr/local/sbin/backup.pl /usr/local/etc/backup-custom-place.conf
+
+exit

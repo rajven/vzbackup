@@ -1,0 +1,214 @@
+#!/bin/bash
+
+### sync data
+TM=`date +%y%m%d-%H%M`
+
+WORKDIR=
+ROOTPATH=
+USERID=
+PASSWDFILE=
+HOST=
+OPTS=
+
+BACKUPDIR=
+#max deleted file summary size limit for normal backup
+DELLIMIT="102400000"
+#max deleted file count for normal backup
+MAXFILES=100
+
+LOGDIR="/var/log/rsync"
+ADMINEMAIL="root"
+RSYNC=`which rsync`
+MODE=
+
+SETLOCALE=
+#SETLOCALE="LANG=ru_RU.UTF-8"
+#SETLOCALE="LANG=ru_RU.KOI8-R"
+#ICONV="--iconv=KOI8-R,UTF-8"
+ICONV=
+
+#basename
+BN=`basename $0`
+LOG1="$LOGDIR/$BN.log"
+#lock file for working process
+LOCK1="/var/run/$BN.pid"
+
+#debug
+DEBUG=1
+DEBUG_LOG=${LOG1}
+
+[ ! -e "${LOGDIR}" ] && {
+    mkdir -p ${LOGDIR} >/dev/null 2>&1
+    chmod 750 ${LOGDIR} >/dev/null 2>&1
+    }
+
+
+function log_debug {
+[ "${DEBUG}" -eq 0 ] && return
+TS="`date +%Y%m%d-%H%M%S` DEBUG:"
+echo "$1" | while read LINE; do
+echo "${TS} ${LINE}" >>${DEBUG_LOG}
+done
+}
+
+function log_info {
+TS="`date +%Y%m%d-%H%M%S` INFO:"
+echo "$1" | while read LINE; do
+echo "${TS} ${LINE}" >>${LOG1}
+done
+}
+
+function log_error {
+TS="`date +%Y%m%d-%H%M%S` ERROR:"
+echo "$1" | while read LINE; do
+echo "${TS} ${LINE}" >>${LOG1}
+done
+}
+
+
+function do_exit {
+log_debug "Script work $SECONDS sec. Exit code: $1"
+[ -n $1 ] && exit $1 || exit
+}
+
+function do_exec {
+[ -z "$1" ] && return
+FAIL="OK"
+eval "$1" || { FAIL="FAIL"; }
+log_debug "$1 - $FAIL"
+eval "FAIL=${FAIL}"
+}
+
+function check_run {
+log_debug "Check for always running - search pid-file $LOCK1"
+while [ -f $LOCK1 ]; do
+local PID=`cat $LOCK1`
+if [ -z `ps awx | awk '{ print $1}' | grep "^$PID$"` ]; then
+        log_error "Найден ничейный файл блокировки! pid=$PID. Удаляю! "
+        do_exec "rm -f $LOCK1 >/dev/null 2>&1"
+        else
+        log_error "Скрипт $BN уже запущен pid=$PID. Жду 5 сек..."
+        sleep 5
+        fi
+done
+}
+
+function create_lock {
+log_debug "Check for always running - search pid $LOCK1"
+[ -f $LOCK1 ] && {
+    log_debug "Pid file found. Aborting..."
+    exit 100
+    }
+log_debug "Create pid file $LOCK1"
+do_exec "echo '$$'>$LOCK1"
+}
+
+function remove_lock {
+local PID=`cat $LOCK1`
+if [ $PID -ne $$ ]; then
+        log_error "Файл блокировки принадлежит другому процессу с pid=$PID, мой pid=$$. Exiting... "
+        do_exit 100
+        else
+        log_debug "Remove pid file."
+        do_exec "rm -f $LOCK1 >/dev/null 2>&1"
+        fi
+}
+
+function set_locale {
+[ -z "${SETLOCALE}" ] && return
+export LANG=${SETLOCALE}
+export LC_ALL=${SETLOCALE}
+}
+
+function send_email {
+BODY=$1
+[ ! -e "${BODY}" ] && return
+SUBJ=$2
+set_locale
+[ -z "${SUBJ}" ] && SUBJ="Mail from $BN at $HOSTNAME"
+CHARSET=`locale | grep LANG | awk -F. '{ print $2 }'`
+[ -z "$CHARSET" ] && CHARSET=`cat /etc/sysconfig/i18n  | grep  LANG | awk -F. '{ print $2 }' | sed 's/"//g;'`
+SUBJ=`echo -ne "${SUBJ}\nMIME-Version: 1.0\nContent-Language: ru\nContent-Type: text/html; charset=$CHARSET\nContent-Transfer-Encoding: 8bit"`
+cat "${BODY}" | sed 's/$/<br>/g;' | mail -s "${SUBJ}" "${ADMINEMAIL}"
+}
+
+#-------------------------------------------------------------------------
+
+function sync_data() {
+set_locale
+do_exec "mkdir -p /var/log/rsync"
+TM=`date +%y%m%d-%H%M`
+do_exec "$RSYNC -rltvh $ICONV $OPTS --partial --delete --delete-after --delay-updates --password-file=$1 $2@$3::$4 $5 >$LOGDIR/$3-$4-$TM.log 2>&1"
+send_email "$LOGDIR/$4-$TM.log" "Sync report for $4 at $HOSTNAME"
+}
+
+function append_data() {
+set_locale
+do_exec "mkdir -p /var/log/rsync"
+TM=`date +%y%m%d-%H%M`
+do_exec "$RSYNC -rltvh $ICONV $OPTS --partial --append --password-file=$1 $2@$3::$4 $5 >$LOGDIR/$3-$4-$TM.log 2>&1"
+send_email "$LOGDIR/$4-$TM.log" "Sync report for $4 at $HOSTNAME"
+}
+
+function check_sync() {
+set_locale
+WORKLIST=`$RSYNC -rltn $ICONV $OPTS --out-format="%o %f" --delete --delete-after --delay-updates --password-file=$1 $2@$3::$4 $5`
+DELLIST=`echo "${WORKLIST}" | grep -i "^del." | sed 's/^del. //'`
+RECVLIST=`echo "${WORKLIST}" | grep -i "^recv " | sed 's/^recv //'`
+
+TMP=`mktemp -t rsync.XXXXXXXXXX`
+cat /dev/null >$TMP
+echo "$DELLIST" | while read FN; do
+FF="$ROOTPATH/$WORKDIR/$FN"
+[ -f "$FF" ] && /usr/bin/du -b "$FF" >>$TMP
+done
+
+SD=`cat $TMP | awk '{ s = s + \$1 } END { print s }'`
+[ -z $SD ] && SD="0"
+
+DC=`echo "$DELLIST" | wc -l`
+rm -f $TMP
+
+LIMIT=`expr $SD / $DELLIMIT`
+[ -z $LIMIT ] && LIMIT="0"
+
+if [ $LIMIT -gt 1 -o $DC -gt $MAXFILES ]; then
+    TMP=`mktemp -t rsync.XXXXXXXXXX`
+    echo "On main share $WORKDIR deleted $DC files, total size $SD bytes. List of deleted files:" >$TMP
+    echo >>$TMP
+    echo "$DELLIST" >>$TMP
+    echo >>$TMP
+    echo "New files list: ">>$TMP
+    echo "$RECVLIST" >>$TMP
+    echo >>$TMP
+    echo "Please check share and sync manyally..." >>$TMP
+    eval "ERRFILE=${TMP}"
+    else
+    eval "ERRFILE="
+    fi
+}
+
+function sync_share() {
+if [ "$MODE" != "manual" ]; then
+    check_sync $PASSWDFILE $USERID $HOST $WORKDIR "$ROOTPATH/$BACKUPDIR"
+    if [ -f "$ERRFILE" -a ! -z "$ERRFILE" ]; then
+            if [ -z "$MODE" -o "$MODE" == "viewonly" ]; then
+                    cat $ERRFILE
+                    else
+                    send_email "$ERRFILE" "Warning! Sync $WORKDIR at $HOSTNAME is overlimit!"
+                    fi
+            rm -f $ERRFILE
+            exit 1
+            fi
+    fi
+sync_data $PASSWDFILE $USERID $HOST $WORKDIR "$ROOTPATH/$BACKUPDIR"
+}
+
+function append_share() {
+append_data $PASSWDFILE $USERID $HOST $WORKDIR "$ROOTPATH/$BACKUPDIR"
+}
+
+log_debug "Running $0 $*"
+log_debug "by user $USER($UID) with effective uid:$EUID"
+log_debug "Parent process id: $PPID (`ps --no-heading -o command -p $PPID`)."
+log_debug "Process id: $$"

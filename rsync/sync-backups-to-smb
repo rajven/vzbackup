@@ -1,0 +1,43 @@
+#!/bin/bash
+
+. /etc/rsync/sync-functions
+. /usr/local/etc/share.conf
+
+#mounted?
+mount | grep -i "backup" >/dev/null
+
+if [ $? -ne 0 ]; then
+    [ ! -e "${MNT_POINT}" ] && mkdir -p "${MNT_POINT}" >/dev/null
+    OPTS=
+    [ -n "${USER}" ] && OPTS="-o user=${USER}"
+    [ -n "${PASS}" ] && OPTS="$OPTS,pass=${PASS}"
+    /sbin/mount.cifs "\\\\${HOSTNAME}\\${SHARE}" "${MNT_POINT}" $OPTS >/dev/null
+    [ $? -ne 0 ] && exit 10
+    fi
+
+#sync remote rsync path and local folder
+WORKDIR="backup"
+ROOTPATH="/mnt/backup/server"
+DELLIMIT="10000000"
+MAXFILES=44
+USERID="backup"
+PASSWDFILE="/etc/rsync/rsyncd.secrets"
+HOST="server"
+MODE=$1
+SETLOCALE="ru_RU.UTF-8"
+OPTS="--chmod=Du=rwx,Fu=rw,Dg=rwx,Fg=rw --bwlimit=40m"
+
+[ ! -e "${ROOTPATH}" ] && {
+    echo "Backup share not found!"
+    exit 110
+    }
+
+#sync files between remote and local
+sync_share
+
+#append files from remote to local path
+#append_share
+
+umount "${MNT_POINT}" >/dev/null
+
+exit

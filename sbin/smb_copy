@@ -1,0 +1,36 @@
+#!/bin/bash
+
+[ $# -ne 6 ] && exit 6
+
+HOSTNAME=${1}
+USER=${2}
+PASS=${3}
+SHARE=${4}
+DIR=${5}
+FILE=${6}
+
+[ -z "${USER}" ] && USER="guest"
+[ -z "${PASS}" ] && PASS="quest"
+
+MNT_POINT="/mnt/${HOSTNAME}-${SHARE}"
+
+#mounted?
+mount | grep -i "${SHARE}" >/dev/null
+
+if [ $? -ne 0 ]; then
+    [ ! -e "${MNT_POINT}" ] && mkdir -p "${MNT_POINT}" >/dev/null
+    OPTS=
+    [ -n "${USER}" ] && OPTS="-o user=${USER}"
+    [ -n "${PASS}" ] && OPTS="$OPTS,password=${PASS}"
+    /sbin/mount.cifs "\\\\${HOSTNAME}\\${SHARE}" "${MNT_POINT}" $OPTS >/dev/null
+    [ $? -ne 0 ] && exit 10
+    fi
+
+[ ! -e "${MNT_POINT}/${DIR}" ] && mkdir -p "${MNT_POINT}/${DIR}" >/dev/null
+
+cp -f "${FILE}" "${MNT_POINT}/${DIR}" >/dev/null
+ret=$?
+
+umount "${MNT_POINT}" >/dev/null
+
+exit ${ret}
